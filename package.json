@@ -1,0 +1,48 @@
+{
+    "name": "@bentopdf/pymupdf-wasm",
+    "version": "0.1.0",
+    "description": "PyMuPDF compiled to WebAssembly - Full PDF manipulation in the browser",
+    "type": "module",
+    "main": "dist/index.js",
+    "module": "dist/index.js",
+    "types": "types/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./types/index.d.ts"
+        }
+    },
+    "files": [
+        "dist",
+        "types",
+        "assets"
+    ],
+    "scripts": {
+        "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:./assets/* --external:@okathira/ghostpdl-wasm",
+        "dev": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --watch --external:@okathira/ghostpdl-wasm",
+        "typecheck": "tsc --noEmit"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/alam00000/bentopdf-pymupdf-wasm.git"
+    },
+    "keywords": [
+        "pdf",
+        "pymupdf",
+        "wasm",
+        "webassembly",
+        "pyodide",
+        "document",
+        "convert",
+        "merge",
+        "split",
+        "extract"
+    ],
+    "author": "BentoPDF",
+    "license": "AGPL-3.0",
+    "bugs": "https://github.com/alam00000/bentopdf-pymupdf-wasm/issues",
+    "devDependencies": {
+        "esbuild": "^0.21.2",
+        "typescript": "^5.3.3"
+    }
+}
