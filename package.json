@@ -12,6 +12,10 @@
             "types": "./types/index.d.ts"
         }
     },
+    "publishConfig": {
+        "access": "public",
+        "provenance": true
+    },
     "files": [
         "dist",
         "types",
