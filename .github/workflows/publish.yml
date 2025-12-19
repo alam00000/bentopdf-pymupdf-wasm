@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: '20'
 
+      - run: echo "registry=https://registry.npmjs.org/" > .npmrc
       - run: npm ci
       - run: npm run build
       - run: npm publish --provenance --access public
