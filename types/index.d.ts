@@ -251,13 +251,19 @@ export declare class PyMuPDF {
         metadata: { page?: number; heading?: string };
     }>>;
 
-    // HTML to PDF conversion - experimental 
-    // TODO@ALAM - revisit this
-    // htmlToPdf(html: string, options?: {
-    //     css?: string;
-    //     pageSize?: 'a4' | 'letter' | 'legal' | 'a3' | 'a5';
-    //     margins?: number | { top: number; right: number; bottom: number; left: number };
-    // }): Promise<Blob>;
+    // LlamaIndex format extraction
+    pdfToLlamaIndex(pdf: Blob | File): Promise<Array<{
+        text: string;
+        metadata: Record<string, any>;
+        extra_info?: Record<string, any>;
+    }>>;
+
+    // HTML to PDF conversion
+    htmlToPdf(html: string, options?: {
+        css?: string;
+        pageSize?: 'a4' | 'letter' | 'legal' | 'a3' | 'a5';
+        margins?: number | { top: number; right: number; bottom: number; left: number };
+    }): Promise<Blob>;
 
     // Text to PDF conversion
     textToPdf(text: string, options?: {
@@ -266,4 +272,46 @@ export declare class PyMuPDF {
         pageSize?: 'a4' | 'letter' | 'legal' | 'a3' | 'a5';
         margins?: number;
     }): Promise<Blob>;
+
+    // PDF rasterization - convert to image-based PDF
+    rasterizePdf(pdf: Blob | File, options?: {
+        dpi?: number;
+        format?: 'png' | 'jpeg';
+        quality?: number;
+        alpha?: boolean;
+        grayscale?: boolean;
+        pages?: number[];
+    }): Promise<Blob>;
+
+    // PDF compression
+    compressPdf(pdf: Blob | File, options?: {
+        scrub?: {
+            metadata?: boolean;
+            xmlMetadata?: boolean;
+            attachedFiles?: boolean;
+            embeddedFiles?: boolean;
+            thumbnails?: boolean;
+        };
+        images?: {
+            enabled?: boolean;
+            dpiThreshold?: number;
+            dpiTarget?: number;
+            quality?: number;
+            convertToGray?: boolean;
+        };
+        subsetFonts?: boolean;
+        save?: {
+            garbage?: 0 | 1 | 2 | 3 | 4;
+            deflate?: boolean;
+            useObjstms?: boolean;
+            clean?: boolean;
+        };
+    }): Promise<{
+        blob: Blob;
+        originalSize: number;
+        compressedSize: number;
+        savings: number;
+        savingsPercent: number;
+        pageCount: number;
+    }>;
 }
