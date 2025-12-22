@@ -1,5 +1,4 @@
-// I have added jsdocs & comments wherever necessary. But if you find this could be improved then feel free to raise PR
-
+// src/page.ts
 function uint8ArrayToBase64(bytes) {
   let binary = "";
   const chunkSize = 32768;
@@ -122,13 +121,6 @@ _result
     }
     return { ...parsed, data: bytes };
   }
-  /**
-   * Insert an image into the page
-   * @param rect Rectangle defining image position and size
-   * @param imageData Image data as Uint8Array
-   * @param options Options including overlay, keepProportion, and oc (OCG xref)
-   * @returns The xref of the inserted image (for use with setOC)
-   */
   insertImage(rect, imageData, options) {
     const overlay = options?.overlay ?? true;
     const keepProportion = options?.keepProportion ?? true;
@@ -364,8 +356,34 @@ json.dumps(result)
     const tables = this.findTables(options);
     return tables.map((t) => t.markdown);
   }
+  /**
+   * Render a page from another document onto this page at a specified rectangle.
+   * The source page will be scaled to fit within the target rectangle.
+   * @param rect Target rectangle where the page will be rendered
+   * @param sourceDocVar Variable name of the source document in Python
+   * @param sourcePageNum Page number in the source document (0-indexed)
+   * @param options Additional options
+   */
+  showPdfPage(rect, sourceDocVar, sourcePageNum, options) {
+    const keepProportion = options?.keepProportion ?? true;
+    const overlay = options?.overlay ?? true;
+    const rotate = options?.rotate ?? 0;
+    this.runPython(`
+page = ${this.docVar}[${this.pageNumber}]
+src = ${sourceDocVar}[${sourcePageNum}]
+page.show_pdf_page(
+    pymupdf.Rect(${rect.x0}, ${rect.y0}, ${rect.x1}, ${rect.y1}),
+    ${sourceDocVar},
+    ${sourcePageNum},
+    keep_proportion=${keepProportion ? "True" : "False"},
+    overlay=${overlay ? "True" : "False"},
+    rotate=${rotate}
+)
+`);
+  }
 };
 
+// src/document.ts
 var PyMuPDFDocument = class {
   constructor(pyodide, docVar, inputPath) {
     this.closed = false;
@@ -587,13 +605,6 @@ base64.b64encode(output).decode('ascii')
     const bytes = this.save(options);
     return new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
   }
-
-  // TODO@ALAM - raise a PR for PyMuPDF for support of nested OCG
-  // I have modified PyMuPDF here to allow support for nested OCG. By default MuPDF only supports root level OCGs
-  /**
-   * Get all Optional Content Groups (layers) in the document with hierarchy info
-   * @returns Array of layer info with visibility states and hierarchy
-   */
   getLayerConfig() {
     this.ensureOpen();
     const result = this.runPython(`
@@ -739,12 +750,6 @@ json.dumps(result_list)
 `);
     return JSON.parse(result);
   }
-  /**
-   * Add a new Optional Content Group (layer) to the document
-   * @param name The display name for the layer
-   * @param options Layer options (config, on, intent, usage)
-   * @returns The xref number of the created OCG
-   */
   addOCG(name, options) {
     this.ensureOpen();
     const config = options?.config ?? -1;
@@ -755,13 +760,6 @@ json.dumps(result_list)
 ${this.docVar}.add_ocg("${name.replace(/"/g, '\\"')}", config=${config}, on=${on ? "True" : "False"}, intent="${intent}", usage="${usage}")
 `);
   }
-  /**
-   * Add a new Optional Content Group (layer) as a child of an existing layer
-   * @param name The display name for the child layer
-   * @param parentXref The xref of the parent OCG
-   * @param options Layer options (config, on, intent, usage)
-   * @returns The xref number of the created child OCG
-   */
   addOCGWithParent(name, parentXref, options) {
     this.ensureOpen();
     const config = options?.config ?? -1;
@@ -920,11 +918,6 @@ if order_str and order_xref:
 child_xref
 `);
   }
-  /**
-   * Set the visibility state of a layer by its xref
-   * @param ocgXref The OCG xref (from getLayerConfig().xref)
-   * @param on True to show, false to hide
-   */
   setLayerVisibility(ocgXref, on) {
     this.ensureOpen();
     this.runPython(`
@@ -1014,28 +1007,14 @@ else:
         ${this.docVar}.xref_set_key(d_xref, on_key, new_on)
 `);
   }
-  /**
-   * Assign an OCG to a PDF object (image, form XObject, etc.)
-   * @param xref The xref of the PDF object
-   * @param ocgXref The xref of the OCG (0 to remove assignment)
-   */
   setOC(xref, ocgXref) {
     this.ensureOpen();
     this.runPython(`${this.docVar}.set_oc(${xref}, ${ocgXref})`);
   }
-  /**
-   * Get the OCG assigned to a PDF object
-   * @param xref The xref of the PDF object
-   * @returns The xref of the assigned OCG, or 0 if none
-   */
   getOC(xref) {
     this.ensureOpen();
     return this.runPython(`${this.docVar}.get_oc(${xref})`);
   }
-  /**
-   * Delete an OCG (layer) from the document by removing it from the PDF structure
-   * @param layerNumber The layer number from getLayerConfig (the "number" field)
-   */
   deleteOCG(layerNumber) {
     this.ensureOpen();
     this.runPython(`
@@ -1143,6 +1122,7 @@ elif t != "null":
   }
 };
 
+// src/pymupdf.ts
 import loadGhostscriptWASM from "@okathira/ghostpdl-wasm";
 async function convertPdfToRgb(pdfData) {
   console.log("[convertPdfToRgb] Starting Ghostscript RGB conversion...");
@@ -1248,7 +1228,6 @@ var PyMuPDF = class {
     this.pyodidePromise = null;
     this.pyodide = null;
     this.docCounter = 0;
-    this.crc32Table = null;
     if (typeof options === "string") {
       this.assetPath = options;
     } else {
@@ -1409,570 +1388,6 @@ ImagesExtractor._to_raw_dict = _orig_to_raw_dict
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     });
   }
-  /**
-   * Convert PDF to EPUB using PyMuPDF for HTML extraction with styling and Pandoc WASM for EPUB generation.
-   * 
-   * Note: Requires pandoc.wasm to be available at the specified pandocAssetPath.
-   * The pandoc.wasm file is approximately 35-50MB and is loaded lazily.
-   * This is experimental. DO NOT USE
-   */
-//   async pdfToEpub(pdf, options) {
-//     const pyodide = await this.getPyodide();
-//     const docId = ++this.docCounter;
-//     const inputPath = `/epub_input_${docId}`;
-//     const buf = await pdf.arrayBuffer();
-//     pyodide.FS.writeFile(inputPath, new Uint8Array(buf));
-//     const result = pyodide.runPython(`
-// import json
-// import base64
-// import pymupdf
-
-// doc = pymupdf.open("${inputPath}")
-// page_width = doc[0].rect.width if doc.page_count > 0 else 612
-
-// html_pages = []
-// images_data = {}
-
-// for page_num in range(doc.page_count):
-//     page = doc[page_num]
-//     pw = page.rect.width
-    
-//     # Get text blocks with position info
-//     blocks = page.get_text("dict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE)["blocks"]
-    
-//     page_html = []
-    
-//     for block in blocks:
-//         if block["type"] == 0:  # Text block
-//             block_x0 = block["bbox"][0]
-//             block_x1 = block["bbox"][2]
-//             block_center = (block_x0 + block_x1) / 2
-//             block_width = block_x1 - block_x0
-            
-//             # Determine alignment based on position
-//             left_margin = block_x0 / pw
-//             right_margin = (pw - block_x1) / pw
-//             center_offset = abs(block_center - pw/2) / pw
-            
-//             align = "left"
-//             if center_offset < 0.1 and abs(left_margin - right_margin) < 0.1:
-//                 align = "center"
-//             elif right_margin < 0.15 and left_margin > 0.3:
-//                 align = "right"
-            
-//             for line in block.get("lines", []):
-//                 line_html = []
-//                 for span in line.get("spans", []):
-//                     text = span["text"]
-//                     if not text.strip():
-//                         continue
-                    
-//                     size = span["size"]
-//                     flags = span["flags"]
-//                     color = span.get("color", 0)
-                    
-//                     # Build inline styles
-//                     styles = []
-                    
-//                     # Font size (relative)
-//                     if size > 16:
-//                         styles.append(f"font-size: {size}pt")
-                    
-//                     # Bold
-//                     if flags & 2**4:
-//                         styles.append("font-weight: bold")
-                    
-//                     # Italic
-//                     if flags & 2**1:
-//                         styles.append("font-style: italic")
-                    
-//                     # Color (if not black)
-//                     if color and color != 0:
-//                         r = (color >> 16) & 0xFF
-//                         g = (color >> 8) & 0xFF
-//                         b = color & 0xFF
-//                         if r != 0 or g != 0 or b != 0:
-//                             styles.append(f"color: rgb({r},{g},{b})")
-                    
-//                     style_attr = f' style="{"; ".join(styles)}"' if styles else ""
-                    
-//                     # Escape HTML
-//                     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    
-//                     if styles:
-//                         line_html.append(f"<span{style_attr}>{text}</span>")
-//                     else:
-//                         line_html.append(text)
-                
-//                 if line_html:
-//                     line_text = "".join(line_html)
-//                     # Detect if this looks like a heading (large, bold, short)
-//                     first_span = line["spans"][0] if line.get("spans") else None
-//                     is_heading = first_span and first_span["size"] > 14 and len(line_text) < 100
-                    
-//                     if is_heading and first_span["size"] > 18:
-//                         page_html.append(f'<h1 style="text-align: {align}">{line_text}</h1>')
-//                     elif is_heading and first_span["size"] > 14:
-//                         page_html.append(f'<h2 style="text-align: {align}">{line_text}</h2>')
-//                     else:
-//                         page_html.append(f'<p style="text-align: {align}; margin: 0.3em 0">{line_text}</p>')
-        
-//         elif block["type"] == 1:  # Image block
-//             xref = block.get("xref", 0)
-//             if xref:
-//                 try:
-//                     img_data = doc.extract_image(xref)
-//                     if img_data:
-//                         ext = img_data["ext"]
-//                         b64 = base64.b64encode(img_data["image"]).decode("ascii")
-//                         mime = f"image/{ext}" if ext != "jpg" else "image/jpeg"
-//                         page_html.append(f'<p style="text-align: center"><img src="data:{mime};base64,{b64}" style="max-width: 100%"/></p>')
-//                 except:
-//                     pass
-    
-//     if page_html:
-//         html_pages.append("\\n".join(page_html))
-
-// # Get metadata
-// meta = doc.metadata or {}
-// title = meta.get('title', '') or '${options?.title || "Untitled"}'
-// author = meta.get('author', '') or '${options?.author || ""}'
-// doc.close()
-
-// # Join pages with page breaks
-// full_html = '<div style="page-break-after: always"></div>'.join(html_pages)
-
-// json.dumps({
-//     'html': full_html,
-//     'title': title,
-//     'author': author
-// })
-// `);
-//     try {
-//       pyodide.FS.unlink(inputPath);
-//     } catch {
-//     }
-//     const extracted = JSON.parse(result);
-//     const fullHtml = `<!DOCTYPE html>
-// <html>
-// <head>
-// <meta charset="UTF-8">
-// <title>${this.escapeHtml(extracted.title)}</title>
-// <style>
-// body { font-family: Georgia, serif; line-height: 1.6; margin: 1em; }
-// h1, h2, h3 { margin-top: 1em; margin-bottom: 0.5em; }
-// p { margin: 0.3em 0; }
-// img { max-width: 100%; height: auto; }
-// </style>
-// </head>
-// <body>
-// ${extracted.html}
-// </body>
-// </html>`;
-//     const pandocAssetPath = options?.pandocAssetPath || this.assetPath + "pandoc-wasm/";
-//     const { Pandoc } = await import(
-//       /* @vite-ignore */
-//       pandocAssetPath + "dist/index.js"
-//     );
-//     const pandoc = new Pandoc(pandocAssetPath);
-//     await pandoc.load();
-//     const epubBytes = await pandoc.htmlToEpub(fullHtml, {
-//       title: extracted.title || options?.title,
-//       author: extracted.author || options?.author,
-//       toc: options?.toc ?? true
-//     });
-//     return new Blob([epubBytes], { type: "application/epub+zip" });
-//   }
-  /**
-   * Convert PDF to EPUB without using Pandoc - generates EPUB structure directly.
-   * This is a lighter-weight alternative that doesn't require the ~35MB Pandoc WASM.
-   */
-//   async pdfToEpubNative(pdf, options) {
-//     const pyodide = await this.getPyodide();
-//     const docId = ++this.docCounter;
-//     const inputPath = `/epub_native_${docId}`;
-//     const buf = await pdf.arrayBuffer();
-//     pyodide.FS.writeFile(inputPath, new Uint8Array(buf));
-//     const result = pyodide.runPython(`
-// import json
-// import base64
-// import pymupdf
-
-// doc = pymupdf.open("${inputPath}")
-
-// chapters = []
-// images = {}
-// image_counter = 0
-
-// for page_num in range(doc.page_count):
-//     page = doc[page_num]
-//     pw = page.rect.width
-    
-//     blocks = page.get_text("dict", flags=pymupdf.TEXT_PRESERVE_WHITESPACE)["blocks"]
-    
-//     page_content = []
-    
-//     for block in blocks:
-//         if block["type"] == 0:  # Text block
-//             block_x0 = block["bbox"][0]
-//             block_x1 = block["bbox"][2]
-//             block_center = (block_x0 + block_x1) / 2
-            
-//             left_margin = block_x0 / pw
-//             right_margin = (pw - block_x1) / pw
-//             center_offset = abs(block_center - pw/2) / pw
-            
-//             align = "left"
-//             if center_offset < 0.1 and abs(left_margin - right_margin) < 0.1:
-//                 align = "center"
-//             elif right_margin < 0.15 and left_margin > 0.3:
-//                 align = "right"
-            
-//             for line in block.get("lines", []):
-//                 spans_html = []
-//                 max_size = 0
-//                 is_bold = False
-                
-//                 for span in line.get("spans", []):
-//                     text = span["text"]
-//                     if not text.strip():
-//                         continue
-                    
-//                     size = span["size"]
-//                     flags = span["flags"]
-//                     max_size = max(max_size, size)
-                    
-//                     if flags & 2**4:
-//                         is_bold = True
-                    
-//                     # Escape HTML
-//                     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                    
-//                     styles = []
-//                     if flags & 2**4:
-//                         styles.append("font-weight: bold")
-//                     if flags & 2**1:
-//                         styles.append("font-style: italic")
-                    
-//                     if styles:
-//                         spans_html.append(f'<span style="{"; ".join(styles)}">{text}</span>')
-//                     else:
-//                         spans_html.append(text)
-                
-//                 if spans_html:
-//                     line_text = "".join(spans_html)
-                    
-//                     if max_size > 18 and is_bold:
-//                         page_content.append(f'<h1 style="text-align: {align}">{line_text}</h1>')
-//                     elif max_size > 14 and is_bold:
-//                         page_content.append(f'<h2 style="text-align: {align}">{line_text}</h2>')
-//                     elif max_size > 12 and is_bold:
-//                         page_content.append(f'<h3 style="text-align: {align}">{line_text}</h3>')
-//                     else:
-//                         page_content.append(f'<p style="text-align: {align}; margin: 0.2em 0">{line_text}</p>')
-        
-//         elif block["type"] == 1:  # Image
-//             xref = block.get("xref", 0)
-//             if xref:
-//                 try:
-//                     img_data = doc.extract_image(xref)
-//                     if img_data:
-//                         ext = img_data["ext"]
-//                         b64 = base64.b64encode(img_data["image"]).decode("ascii")
-//                         img_id = f"img_{image_counter}"
-//                         image_counter += 1
-//                         images[img_id] = {"ext": ext, "data": b64}
-//                         page_content.append(f'<p style="text-align: center"><img src="images/{img_id}.{ext}" style="max-width: 100%"/></p>')
-//                 except:
-//                     pass
-    
-//     if page_content:
-//         chapters.append({
-//             "page": page_num + 1,
-//             "content": "\\n".join(page_content)
-//         })
-
-// # Get metadata
-// meta = doc.metadata or {}
-// title = meta.get('title', '') or '${options?.title || "Untitled"}'
-// author = meta.get('author', '') or '${options?.author || ""}'
-
-// # Get TOC
-// toc_entries = []
-// try:
-//     for entry in doc.get_toc():
-//         toc_entries.append({
-//             "level": entry[0],
-//             "title": entry[1],
-//             "page": entry[2]
-//         })
-// except:
-//     pass
-
-// doc.close()
-
-// json.dumps({
-//     "chapters": chapters,
-//     "images": images,
-//     "title": title,
-//     "author": author,
-//     "toc": toc_entries
-// })
-// `);
-//     try {
-//       pyodide.FS.unlink(inputPath);
-//     } catch {
-//     }
-//     const extracted = JSON.parse(result);
-//     const epub = await this.generateEpub(extracted, options?.toc ?? true);
-//     return new Blob([new Uint8Array(epub)], { type: "application/epub+zip" });
-//   }
-//   async generateEpub(data, includeToc) {
-//     const files = [];
-//     const encoder = new TextEncoder();
-//     files.push({
-//       name: "mimetype",
-//       content: encoder.encode("application/epub+zip")
-//     });
-//     files.push({
-//       name: "META-INF/container.xml",
-//       content: encoder.encode(`<?xml version="1.0" encoding="UTF-8"?>
-// <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-//   <rootfiles>
-//     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
-//   </rootfiles>
-// </container>`)
-//     });
-//     const chapterIds = [];
-//     for (let i = 0; i < data.chapters.length; i++) {
-//       const chapter = data.chapters[i];
-//       const chapterId = `chapter${i + 1}`;
-//       chapterIds.push(chapterId);
-//       const chapterHtml = `<?xml version="1.0" encoding="UTF-8"?>
-// <!DOCTYPE html>
-// <html xmlns="http://www.w3.org/1999/xhtml">
-// <head>
-//   <title>${this.escapeHtml(data.title)} - Page ${chapter.page}</title>
-//   <link rel="stylesheet" type="text/css" href="style.css"/>
-// </head>
-// <body>
-// ${chapter.content}
-// </body>
-// </html>`;
-//       files.push({
-//         name: `OEBPS/${chapterId}.xhtml`,
-//         content: encoder.encode(chapterHtml)
-//       });
-//     }
-//     const imageIds = [];
-//     for (const [imgId, imgData] of Object.entries(data.images)) {
-//       const ext = imgData.ext;
-//       const mediaType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/png";
-//       const binary = atob(imgData.data);
-//       const bytes = new Uint8Array(binary.length);
-//       for (let i = 0; i < binary.length; i++) {
-//         bytes[i] = binary.charCodeAt(i);
-//       }
-//       files.push({
-//         name: `OEBPS/images/${imgId}.${ext}`,
-//         content: bytes
-//       });
-//       imageIds.push({
-//         id: imgId,
-//         href: `images/${imgId}.${ext}`,
-//         mediaType
-//       });
-//     }
-//     files.push({
-//       name: "OEBPS/style.css",
-//       content: encoder.encode(`
-// body { font-family: Georgia, serif; line-height: 1.5; margin: 1em; }
-// h1, h2, h3 { margin-top: 1em; margin-bottom: 0.5em; }
-// p { margin: 0.3em 0; }
-// img { max-width: 100%; height: auto; }
-// `)
-//     });
-//     let tocHtml = "";
-//     if (includeToc && data.toc.length > 0) {
-//       const tocItems = data.toc.map((entry) => {
-//         const chapterIdx = Math.min(entry.page - 1, data.chapters.length - 1);
-//         return `<li><a href="chapter${chapterIdx + 1}.xhtml">${this.escapeHtml(entry.title)}</a></li>`;
-//       }).join("\n");
-//       tocHtml = `<?xml version="1.0" encoding="UTF-8"?>
-// <!DOCTYPE html>
-// <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-// <head>
-//   <title>Table of Contents</title>
-//   <link rel="stylesheet" type="text/css" href="style.css"/>
-// </head>
-// <body>
-//   <nav epub:type="toc">
-//     <h1>Table of Contents</h1>
-//     <ol>
-// ${tocItems}
-//     </ol>
-//   </nav>
-// </body>
-// </html>`;
-//       files.push({
-//         name: "OEBPS/toc.xhtml",
-//         content: encoder.encode(tocHtml)
-//       });
-//     }
-//     const manifestItems = [
-//       '<item id="style" href="style.css" media-type="text/css"/>',
-//       ...chapterIds.map((id) => `<item id="${id}" href="${id}.xhtml" media-type="application/xhtml+xml"/>`),
-//       ...imageIds.map((img) => `<item id="${img.id}" href="${img.href}" media-type="${img.mediaType}"/>`)
-//     ];
-//     if (includeToc && data.toc.length > 0) {
-//       manifestItems.push('<item id="toc" href="toc.xhtml" media-type="application/xhtml+xml" properties="nav"/>');
-//     }
-//     const spineItems = chapterIds.map((id) => `<itemref idref="${id}"/>`);
-//     const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
-// <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="BookId">
-//   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-//     <dc:identifier id="BookId">urn:uuid:${crypto.randomUUID()}</dc:identifier>
-//     <dc:title>${this.escapeHtml(data.title)}</dc:title>
-//     <dc:creator>${this.escapeHtml(data.author)}</dc:creator>
-//     <dc:language>en</dc:language>
-//     <meta property="dcterms:modified">${(/* @__PURE__ */ new Date()).toISOString().split(".")[0]}Z</meta>
-//   </metadata>
-//   <manifest>
-// ${manifestItems.join("\n")}
-//   </manifest>
-//   <spine>
-// ${spineItems.join("\n")}
-//   </spine>
-// </package>`;
-//     files.push({
-//       name: "OEBPS/content.opf",
-//       content: encoder.encode(contentOpf)
-//     });
-//     return this.createZip(files);
-//   }
-//   async createZip(files) {
-//     const parts = [];
-//     const centralDirectory = [];
-//     let offset = 0;
-//     for (const file of files) {
-//       const nameBytes = new TextEncoder().encode(file.name);
-//       const isFirst = file.name === "mimetype";
-//       const localHeader = new Uint8Array(30 + nameBytes.length);
-//       const view = new DataView(localHeader.buffer);
-//       view.setUint32(0, 67324752, true);
-//       view.setUint16(4, 20, true);
-//       view.setUint16(6, 0, true);
-//       view.setUint16(8, isFirst ? 0 : 8, true);
-//       view.setUint16(10, 0, true);
-//       view.setUint16(12, 0, true);
-//       let compressedContent;
-//       if (isFirst) {
-//         compressedContent = file.content;
-//       } else {
-//         compressedContent = await this.deflate(file.content);
-//       }
-//       const crc = this.crc32(file.content);
-//       view.setUint32(14, crc, true);
-//       view.setUint32(18, compressedContent.length, true);
-//       view.setUint32(22, file.content.length, true);
-//       view.setUint16(26, nameBytes.length, true);
-//       view.setUint16(28, 0, true);
-//       localHeader.set(nameBytes, 30);
-//       parts.push(localHeader);
-//       parts.push(compressedContent);
-//       const centralEntry = new Uint8Array(46 + nameBytes.length);
-//       const centralView = new DataView(centralEntry.buffer);
-//       centralView.setUint32(0, 33639248, true);
-//       centralView.setUint16(4, 20, true);
-//       centralView.setUint16(6, 20, true);
-//       centralView.setUint16(8, 0, true);
-//       centralView.setUint16(10, isFirst ? 0 : 8, true);
-//       centralView.setUint16(12, 0, true);
-//       centralView.setUint16(14, 0, true);
-//       centralView.setUint32(16, crc, true);
-//       centralView.setUint32(20, compressedContent.length, true);
-//       centralView.setUint32(24, file.content.length, true);
-//       centralView.setUint16(28, nameBytes.length, true);
-//       centralView.setUint16(30, 0, true);
-//       centralView.setUint16(32, 0, true);
-//       centralView.setUint16(34, 0, true);
-//       centralView.setUint16(36, 0, true);
-//       centralView.setUint32(38, 0, true);
-//       centralView.setUint32(42, offset, true);
-//       centralEntry.set(nameBytes, 46);
-//       centralDirectory.push(centralEntry);
-//       offset += localHeader.length + compressedContent.length;
-//     }
-//     const centralDirOffset = offset;
-//     for (const entry of centralDirectory) {
-//       parts.push(entry);
-//       offset += entry.length;
-//     }
-//     const eocd = new Uint8Array(22);
-//     const eocdView = new DataView(eocd.buffer);
-//     eocdView.setUint32(0, 101010256, true);
-//     eocdView.setUint16(4, 0, true);
-//     eocdView.setUint16(6, 0, true);
-//     eocdView.setUint16(8, files.length, true);
-//     eocdView.setUint16(10, files.length, true);
-//     eocdView.setUint32(12, offset - centralDirOffset, true);
-//     eocdView.setUint32(16, centralDirOffset, true);
-//     eocdView.setUint16(20, 0, true);
-//     parts.push(eocd);
-//     const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
-//     const result = new Uint8Array(totalLength);
-//     let pos = 0;
-//     for (const part of parts) {
-//       result.set(part, pos);
-//       pos += part.length;
-//     }
-//     return result;
-//   }
-//   async deflate(data) {
-//     const stream = new CompressionStream("deflate-raw");
-//     const writer = stream.writable.getWriter();
-//     writer.write(new Uint8Array(data));
-//     writer.close();
-//     const chunks = [];
-//     const reader = stream.readable.getReader();
-//     while (true) {
-//       const { done, value } = await reader.read();
-//       if (done) break;
-//       chunks.push(value);
-//     }
-//     const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
-//     const result = new Uint8Array(totalLength);
-//     let offset = 0;
-//     for (const chunk of chunks) {
-//       result.set(chunk, offset);
-//       offset += chunk.length;
-//     }
-//     return result;
-//   }
-//   crc32(data) {
-//     let crc = 4294967295;
-//     const table = this.getCrc32Table();
-//     for (let i = 0; i < data.length; i++) {
-//       crc = crc >>> 8 ^ table[(crc ^ data[i]) & 255];
-//     }
-//     return (crc ^ 4294967295) >>> 0;
-//   }
-//   getCrc32Table() {
-//     if (this.crc32Table) return this.crc32Table;
-//     const table = new Uint32Array(256);
-//     for (let i = 0; i < 256; i++) {
-//       let c = i;
-//       for (let j = 0; j < 8; j++) {
-//         c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
-//       }
-//       table[i] = c;
-//     }
-//     this.crc32Table = table;
-//     return table;
-//   }
-//   escapeHtml(text) {
-//     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-//   }
   async merge(pdfs) {
     if (pdfs.length === 0) {
       throw new Error("No PDFs provided for merging");

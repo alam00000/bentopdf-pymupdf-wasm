@@ -430,4 +430,40 @@ json.dumps(result)
         const tables = this.findTables(options);
         return tables.map(t => t.markdown);
     }
+
+    /**
+     * Render a page from another document onto this page at a specified rectangle.
+     * The source page will be scaled to fit within the target rectangle.
+     * @param rect Target rectangle where the page will be rendered
+     * @param sourceDocVar Variable name of the source document in Python
+     * @param sourcePageNum Page number in the source document (0-indexed)
+     * @param options Additional options
+     */
+    showPdfPage(
+        rect: Rect,
+        sourceDocVar: string,
+        sourcePageNum: number,
+        options?: {
+            keepProportion?: boolean;
+            overlay?: boolean;
+            rotate?: number;
+        }
+    ): void {
+        const keepProportion = options?.keepProportion ?? true;
+        const overlay = options?.overlay ?? true;
+        const rotate = options?.rotate ?? 0;
+
+        this.runPython(`
+page = ${this.docVar}[${this.pageNumber}]
+src = ${sourceDocVar}[${sourcePageNum}]
+page.show_pdf_page(
+    pymupdf.Rect(${rect.x0}, ${rect.y0}, ${rect.x1}, ${rect.y1}),
+    ${sourceDocVar},
+    ${sourcePageNum},
+    keep_proportion=${keepProportion ? 'True' : 'False'},
+    overlay=${overlay ? 'True' : 'False'},
+    rotate=${rotate}
+)
+`);
+    }
 }
