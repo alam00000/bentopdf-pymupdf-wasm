@@ -187,6 +187,22 @@ export declare class PyMuPDFDocument {
     save(options?: { garbage?: number; deflate?: boolean; clean?: boolean; encryption?: EncryptionOptions }): Uint8Array;
     saveAsBlob(options?: { garbage?: number; deflate?: boolean; clean?: boolean; encryption?: EncryptionOptions }): Blob;
 
+    // Layers / OCG
+    getLayerConfig(): Array<{
+        number: number;
+        xref?: number;
+        text: string;
+        on: boolean;
+        locked: boolean;
+        depth?: number;
+        parentXref?: number;
+        displayOrder?: number;
+    }>;
+    addOCG(name: string, options?: { config?: number; on?: boolean; intent?: string; usage?: string }): number;
+    addOCGWithParent(name: string, parentXref: number, options?: { config?: number; on?: boolean; intent?: string; usage?: string }): number;
+    setLayerVisibility(ocgXref: number, on: boolean): void;
+    deleteOCG(number: number): void;
+
     close(): void;
 }
 
