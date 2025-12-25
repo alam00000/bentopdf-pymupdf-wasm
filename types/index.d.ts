@@ -99,6 +99,14 @@ export interface TocEntry {
     dest?: Point;
 }
 
+export interface TableInfo {
+    rows: (string | null)[][];
+    markdown: string;
+    rowCount: number;
+    colCount: number;
+    bbox?: Rect;
+}
+
 export declare class PyMuPDFPage {
     readonly pageNumber: number;
     readonly rect: Rect;
@@ -141,6 +149,9 @@ export declare class PyMuPDFPage {
     drawLine(from: Point, to: Point, color?: Color, width?: number): void;
     drawRect(rect: Rect, color?: Color, fill?: Color, width?: number): void;
     drawCircle(center: Point, radius: number, color?: Color, fill?: Color): void;
+
+    // Table extraction
+    findTables(): TableInfo[];
 }
 
 export declare class PyMuPDFDocument {
@@ -286,6 +297,7 @@ export declare class PyMuPDF {
         fontName?: 'helv' | 'tiro' | 'cour' | 'times';
         fontSize?: number;
         pageSize?: 'a4' | 'letter' | 'legal' | 'a3' | 'a5';
+        textColor?: string;
         margins?: number;
     }): Promise<Blob>;
 
