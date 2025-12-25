@@ -207,10 +207,64 @@ This package was ported to work with [BentoPDF](https://bentopdf.com), an open-s
 
 ## License
 
-AGPL-3.0
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+### Copyright Notices
+
+#### BentoPDF
+
+```
+Copyright (C) 2025 BentoPDF Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+```
+
+#### PyMuPDF
+
+```
+Copyright (C) 2004-2025 Artifex Software, Inc.
+
+PyMuPDF is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+PyMuPDF is a Python binding for MuPDF
+
+Source code: https://github.com/pymupdf/PyMuPDF
+License: https://github.com/pymupdf/PyMuPDF/blob/master/COPYING
+```
+
+#### Ghostscript
+
+```
+Copyright (C) 2001-2025 Artifex Software, Inc.
+
+Ghostscript is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+Ghostscript is an interpreter for the PostScript language and PDF files.
+
+Source code: https://github.com/ArtifexSoftware/ghostpdl
+License: https://www.ghostscript.com/licensing/
+```
+
+### Combined Work Notice
+
+This package combines code from multiple AGPL-3.0 licensed projects. As a combined work,
+it is distributed under the terms of the GNU Affero General Public License v3.0. The source
+code for all components is available in accordance with Section 13 of the AGPL-3.0.
+
+For the complete license text, see the [LICENSE](./LICENSE) file.
 
 ## Credits
 
-- [PyMuPDF](https://github.com/pymupdf/PyMuPDF) - Python bindings for MuPDF
+- [PyMuPDF](https://github.com/pymupdf/PyMuPDF) - Python bindings for MuPDF (© Artifex Software, Inc.)
+- [Ghostscript](https://www.ghostscript.com/) - PostScript and PDF interpreter (© Artifex Software, Inc.)
 - [Pyodide](https://pyodide.org/) - Python in the browser
-- [pdf2docx](https://github.com/dothinking/pdf2docx) - PDF to DOCX conversion
+- [pdf2docx](https://github.com/dothinking/pdf2docx) - PDF to DOCX conversion (© Artifex Software, Inc.)

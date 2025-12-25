@@ -1,6 +1,6 @@
 import { PyMuPDFDocument } from './document';
 import type { PyodideInterface, LlamaIndexDocument } from './types';
-import loadGhostscriptWASM from '@okathira/ghostpdl-wasm';
+import loadGhostscriptWASM from '@bentopdf/gs-wasm';
 
 interface GhostscriptModule {
     FS: {

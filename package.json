@@ -22,9 +22,12 @@
         "assets"
     ],
     "scripts": {
-        "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:./assets/* --external:@okathira/ghostpdl-wasm",
-        "dev": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --watch --external:@okathira/ghostpdl-wasm",
+        "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:./assets/* --external:@bentopdf/gs-wasm",
+        "dev": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --watch --external:@bentopdf/gs-wasm",
         "typecheck": "tsc --noEmit"
+    },
+    "peerDependencies": {
+        "@bentopdf/gs-wasm": "*"
     },
     "repository": {
         "type": "git",

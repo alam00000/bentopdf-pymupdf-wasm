@@ -1,4 +1,3 @@
-// src/page.ts
 function uint8ArrayToBase64(bytes) {
   let binary = "";
   const chunkSize = 32768;
@@ -383,7 +382,6 @@ page.show_pdf_page(
   }
 };
 
-// src/document.ts
 var PyMuPDFDocument = class {
   constructor(pyodide, docVar, inputPath) {
     this.closed = false;
@@ -1122,8 +1120,7 @@ elif t != "null":
   }
 };
 
-// src/pymupdf.ts
-import loadGhostscriptWASM from "@okathira/ghostpdl-wasm";
+import loadGhostscriptWASM from "@bentopdf/gs-wasm";
 async function convertPdfToRgb(pdfData) {
   console.log("[convertPdfToRgb] Starting Ghostscript RGB conversion...");
   console.log("[convertPdfToRgb] Input size:", pdfData.length);
