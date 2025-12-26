@@ -170,6 +170,20 @@ export class PyMuPDF {
         pyodide.runPython(`
 import pymupdf
 pymupdf.TOOLS.store_shrink(100)
+
+def repair_pdf(doc, save_path=None):
+    """
+    Repair a PDF by saving with garbage collection and reloading.
+    This fixes corrupted cross-reference tables that cause 'cannot find object in xref' errors.
+    If save_path is provided, saves the repaired PDF to that path (for use with pymupdf4llm).
+    """
+    repair_bytes = doc.tobytes(garbage=4, deflate=True)
+    doc.close()
+    if save_path:
+        with open(save_path, 'wb') as f:
+            f.write(repair_bytes)
+        return None
+    return pymupdf.open("pdf", repair_bytes)
 `);
         return pyodide;
     }
@@ -780,6 +794,10 @@ base64.b64encode(pdf_bytes).decode('ascii')
         const result = pyodide.runPython(`
 import pymupdf4llm
 
+# Pre-repair: Fix corrupted xrefs in-place
+_temp_doc = pymupdf.open("${inputPath}")
+repair_pdf(_temp_doc, "${inputPath}")
+
 md_text = pymupdf4llm.to_markdown(
     "${inputPath}",
     embed_images=${embedImages},
@@ -815,6 +833,10 @@ result
         const result = pyodide.runPython(`
 import pymupdf4llm
 import json
+
+# Pre-repair: Fix corrupted xrefs in-place
+_temp_doc = pymupdf.open("${inputPath}")
+repair_pdf(_temp_doc, "${inputPath}")
 
 chunks = pymupdf4llm.to_markdown(
     "${inputPath}",
@@ -862,6 +884,10 @@ json.dumps(result)
 import pymupdf4llm
 import pymupdf
 import json
+
+# Pre-repair: Fix corrupted xrefs in-place
+_temp_doc = pymupdf.open("${inputPath}")
+repair_pdf(_temp_doc, "${inputPath}")
 
 # Use to_markdown with page_chunks=True - same output as LlamaMarkdownReader
 chunks = pymupdf4llm.to_markdown("${inputPath}", page_chunks=True)
@@ -965,6 +991,7 @@ json.dumps(result)
 import base64
 
 src_doc = pymupdf.open("${inputPath}")
+src_doc = repair_pdf(src_doc)
 out_doc = pymupdf.open()
 
 zoom = ${dpi} / 72.0
@@ -1066,6 +1093,9 @@ import json
 
 doc = pymupdf.open("${inputPath}")
 original_page_count = doc.page_count
+
+# Pre-repair: Fix corrupted xrefs before processing
+doc = repair_pdf(doc)
 
 # 1. Dead-weight removal (scrub)
 doc.scrub(
