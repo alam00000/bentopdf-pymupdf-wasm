@@ -1,3 +1,4 @@
+// src/page.ts
 function uint8ArrayToBase64(bytes) {
   let binary = "";
   const chunkSize = 32768;
@@ -382,6 +383,7 @@ page.show_pdf_page(
   }
 };
 
+// src/document.ts
 var PyMuPDFDocument = class {
   constructor(pyodide, docVar, inputPath) {
     this.closed = false;
@@ -1120,6 +1122,7 @@ elif t != "null":
   }
 };
 
+// src/pymupdf.ts
 import loadGhostscriptWASM from "@bentopdf/gs-wasm";
 async function convertPdfToRgb(pdfData) {
   console.log("[convertPdfToRgb] Starting Ghostscript RGB conversion...");
@@ -1658,6 +1661,7 @@ base64.b64encode(pix.tobytes("${format}")).decode('ascii')
     const fontFamily = fontMap[fontName] || "sans-serif";
     const result = pyodide.runPython(`
 import base64
+import io
 
 html_content = '''
 <p style="font-family: ${fontFamily}; font-size: ${fontSize}pt; margin: 0; padding: 0; ${directionStyle}">
@@ -1665,23 +1669,26 @@ ${escapedText}
 </p>
 '''
 
-doc = pymupdf.open()
+css_content = "* { font-family: ${fontFamily}; font-size: ${fontSize}pt; }"
+
 mediabox = pymupdf.paper_rect("${pageSize}")
 margin = ${margins}
 where = mediabox + (margin, margin, -margin, -margin)
 
-more = True
-page_count = 0
-max_pages = 100
+story = pymupdf.Story(html=html_content, user_css=css_content)
 
-while more and page_count < max_pages:
-    page = doc.new_page(width=mediabox.width, height=mediabox.height)
-    more, _ = page.insert_htmlbox(where, html_content, css="* { font-family: ${fontFamily}; font-size: ${fontSize}pt; }")
-    page_count += 1
+buffer = io.BytesIO()
+writer = pymupdf.DocumentWriter(buffer)
 
-# Subset and embed fonts for PDF/A compatibility
+def rectfn(rect_num, filled):
+    return mediabox, where, None
+
+story.write(writer, rectfn)
+writer.close()
+
+buffer.seek(0)
+doc = pymupdf.open("pdf", buffer.read())
 doc.subset_fonts()
-
 pdf_bytes = doc.tobytes(garbage=3, deflate=True)
 doc.close()
 
