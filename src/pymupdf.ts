@@ -959,6 +959,20 @@ for chunk in chunks:
     else:
         result.append({"text": str(chunk), "metadata": {"file_name": "${filename.replace(/"/g, '\\"')}"}})
 
+def make_json_safe(obj):
+    if isinstance(obj, pymupdf.Rect):
+        return list(obj)
+    elif isinstance(obj, dict):
+        return {k: make_json_safe(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_safe(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return [make_json_safe(v) for v in obj]
+    else:
+        return obj
+
+result = make_json_safe(result)
+
 json.dumps(result)
 `) as string;
 
