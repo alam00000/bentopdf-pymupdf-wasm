@@ -1703,8 +1703,29 @@ base64.b64encode(pdf_bytes).decode('ascii')
   }
   async htmlToPdf(html, options) {
     const pyodide = await this.getPyodide();
-    const escapedHtml = html.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n");
-    const escapedCss = options?.css?.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n") ?? "";
+    const uint8ToBase64 = (u8Arr) => {
+      const CHUNK_SIZE = 32768;
+      let result2 = "";
+      for (let i = 0; i < u8Arr.length; i += CHUNK_SIZE) {
+        result2 += String.fromCharCode.apply(null, u8Arr.subarray(i, Math.min(i + CHUNK_SIZE, u8Arr.length)));
+      }
+      return btoa(result2);
+    };
+    const encoder = new TextEncoder();
+    const htmlBase64 = uint8ToBase64(encoder.encode(html));
+    const cssBase64 = options?.css ? uint8ToBase64(encoder.encode(options.css)) : "";
+    const attachmentsList = [];
+    if (options?.attachments) {
+      for (const att of options.attachments) {
+        if (att.content && att.content.length > 0) {
+          attachmentsList.push({
+            name: att.filename,
+            data: uint8ToBase64(att.content)
+          });
+        }
+      }
+    }
+    pyodide.globals.set("attachments_json", JSON.stringify(attachmentsList));
     const pageSize = options?.pageSize ?? "a4";
     let margins = { top: 36, right: 36, bottom: 36, left: 36 };
     if (typeof options?.margins === "number") {
@@ -1715,68 +1736,87 @@ base64.b64encode(pdf_bytes).decode('ascii')
     const result = pyodide.runPython(`
 import base64
 import io
-import re
 import json
+import re
 
-html_content = '''${escapedHtml}'''
-css_content = '''${escapedCss}'''
+html_content = base64.b64decode("${htmlBase64}").decode('utf-8')
+css_content = base64.b64decode("${cssBase64}").decode('utf-8') if "${cssBase64}" else ""
 
-# Extract links from HTML before processing
-link_pattern = r'<a[^>]*href=["\\'](https?://[^"\\'>]+)["\\'"][^>]*>([^<]+)</a>'
-links = re.findall(link_pattern, html_content, re.IGNORECASE)
-# links is a list of (url, text) tuples
 
 html_content = re.sub(r'<link[^>]*stylesheet[^>]*>', '', html_content, flags=re.IGNORECASE)
 html_content = re.sub(r'<link[^>]*href=[^>]*>', '', html_content, flags=re.IGNORECASE)
-html_content = re.sub(r'<script[^>]*src=[^>]*>.*?<\\/script>', '', html_content, flags=re.IGNORECASE|re.DOTALL)
-html_content = re.sub(r'<script[^>]*src=[^>]*/>', '', html_content, flags=re.IGNORECASE)
+html_content = re.sub(r'<script[^>]*>.*?<\/script>', '', html_content, flags=re.IGNORECASE|re.DOTALL)
+
+if css_content:
+    if '<head>' in html_content:
+        html_content = html_content.replace('<head>', '<head><style>' + css_content + '</style>')
+    else:
+        html_content = '<style>' + css_content + '</style>' + html_content
 
 mediabox = pymupdf.paper_rect("${pageSize}")
 where = mediabox + (${margins.left}, ${margins.top}, -${margins.right}, -${margins.bottom})
 
-story = pymupdf.Story(html=html_content, user_css=css_content if css_content else None)
+doc = pymupdf.open()
+story = pymupdf.Story(html=html_content)
 
 buffer = io.BytesIO()
 writer = pymupdf.DocumentWriter(buffer)
 
-def rectfn(rect_num, filled):
-    if rect_num == 0 or filled == 0:
-        return mediabox, where, None
-    return mediabox, where, None
+more_pages = True
+page_num = 0
+while more_pages:
+    dev = writer.begin_page(mediabox)
+    more_content, filled = story.place(where)
+    story.draw(dev)
+    writer.end_page()
+    more_pages = more_content
+    page_num += 1
 
-story.write(writer, rectfn)
 writer.close()
-
-# Now open the PDF and add link annotations
 buffer.seek(0)
 doc = pymupdf.open("pdf", buffer.read())
 
-# For each link found in HTML, search for the text and add a link annotation
-for url, text in links:
-    text = text.strip()
-    if not text:
-        continue
-    # Search all pages for this text
-    for page_num in range(doc.page_count):
-        page = doc[page_num]
-        # Search for the link text
-        text_instances = page.search_for(text)
-        for rect in text_instances:
-            # Add a link annotation
-            link = page.insert_link({
-                "kind": pymupdf.LINK_URI,
-                "from": rect,
-                "uri": url
-            })
+for page in doc:
+    for link_uri, anchor_text in found_links:
+        clean_text = re.sub(r'<[^>]+>', '', anchor_text)  # Remove any nested tags
+        clean_text = ' '.join(clean_text.split())  # Normalize whitespace
+        
+        if len(clean_text) > 3:  
+            # Search for the anchor text in the page
+            text_instances = page.search_for(clean_text)
+            for inst in text_instances:
+                try:
+                    link_dict = {
+                        'kind': pymupdf.LINK_URI,
+                        'from': inst,
+                        'uri': link_uri
+                    }
+                    page.insert_link(link_dict)
+                except Exception as e:
+                    pass  # Silently continue on error
 
-# Save the modified PDF
-output_buffer = io.BytesIO()
-doc.save(output_buffer)
+# Embed attachments
+att_json = attachments_json
+if att_json:
+    try:
+        atts = json.loads(att_json)
+        for att in atts:
+            name = att.get('name', 'unnamed')
+            data = base64.b64decode(att.get('data', ''))
+            if data:
+                doc.embfile_add(name, data)
+    except:
+        pass
+
+final_pdf = doc.tobytes(garbage=3, deflate=True)
 doc.close()
 
-pdf_bytes = output_buffer.getvalue()
-base64.b64encode(pdf_bytes).decode('ascii')
+base64.b64encode(final_pdf).decode('ascii')
 `);
+    try {
+      pyodide.globals.delete("attachments_json");
+    } catch {
+    }
     const binaryStr = atob(result);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
