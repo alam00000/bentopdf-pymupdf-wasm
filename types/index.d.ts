@@ -342,4 +342,23 @@ export declare class PyMuPDF {
         savingsPercent: number;
         pageCount: number;
     }>;
+
+    deskewPdf(pdf: Blob | File, options?: DeskewOptions): Promise<{
+        pdf: Blob;
+        result: DeskewResult;
+    }>;
+}
+
+export interface DeskewOptions {
+    threshold?: number;
+    dpi?: number;
+    maxAngle?: number;
+    pages?: number[];
+}
+
+export interface DeskewResult {
+    totalPages: number;
+    correctedPages: number;
+    angles: number[];
+    corrected: boolean[];
 }

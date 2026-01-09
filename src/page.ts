@@ -13,9 +13,23 @@ import type {
     TableFindOptions
 } from './types';
 
+function base64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+    const binaryStr = atob(base64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    const CHUNK_SIZE = 0x8000;
+    for (let i = 0; i < len; i += CHUNK_SIZE) {
+        const end = Math.min(i + CHUNK_SIZE, len);
+        for (let j = i; j < end; j++) {
+            bytes[j] = binaryStr.charCodeAt(j);
+        }
+    }
+    return bytes;
+}
+
 function uint8ArrayToBase64(bytes: Uint8Array): string {
-    let binary = '';
     const chunkSize = 0x8000;
+    let binary = '';
     for (let i = 0; i < bytes.length; i += chunkSize) {
         const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
         binary += String.fromCharCode.apply(null, Array.from(chunk));
@@ -155,11 +169,7 @@ _result
 
         if (result === 'null') return null;
         const parsed = JSON.parse(result);
-        const binary = atob(parsed.data);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
+        const bytes = base64ToUint8Array(parsed.data);
         return { ...parsed, data: bytes };
     }
 
@@ -298,11 +308,7 @@ pix = page.get_pixmap(matrix=mat, alpha=${alpha ? 'True' : 'False'}, clip=${clip
 base64.b64encode(pix.tobytes("png")).decode('ascii')
 `) as string;
 
-        const binary = atob(result);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
+        const bytes = base64ToUint8Array(result);
         return bytes;
     }
 

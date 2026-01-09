@@ -96,6 +96,32 @@ async function convertPdfToRgb(pdfData: Uint8Array): Promise<Uint8Array> {
     return copy;
 }
 
+
+function base64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+    const binaryStr = atob(base64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    
+    const CHUNK_SIZE = 0x8000; 
+    for (let i = 0; i < len; i += CHUNK_SIZE) {
+        const end = Math.min(i + CHUNK_SIZE, len);
+        for (let j = i; j < end; j++) {
+            bytes[j] = binaryStr.charCodeAt(j);
+        }
+    }
+    return bytes;
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+    const CHUNK_SIZE = 0x8000; 
+    const chunks: string[] = [];
+    for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+        const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+        chunks.push(String.fromCharCode.apply(null, Array.from(chunk)));
+    }
+    return btoa(chunks.join(''));
+}
+
 const ASSETS = {
     pyodide: 'pyodide.js',
     wheels: [
@@ -120,6 +146,20 @@ export interface EpubOptions {
     author?: string;
     toc?: boolean;
     pandocAssetPath?: string; // TODO@ALAM - revisit to implement 
+}
+
+export interface DeskewOptions {
+    threshold?: number;
+    dpi?: number;
+    maxAngle?: number;
+    pages?: number[];
+}
+
+export interface DeskewResult {
+    totalPages: number;
+    correctedPages: number;
+    angles: number[];
+    corrected: boolean[];
 }
 
 export class PyMuPDF {
@@ -169,6 +209,8 @@ export class PyMuPDF {
 
         pyodide.runPython(`
 import pymupdf
+import cv2
+import numpy as np
 pymupdf.TOOLS.store_shrink(100)
 
 def repair_pdf(doc, save_path=None):
@@ -184,6 +226,91 @@ def repair_pdf(doc, save_path=None):
             f.write(repair_bytes)
         return None
     return pymupdf.open("pdf", repair_bytes)
+
+def detect_skew_hough(gray):
+    edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+    lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=100, maxLineGap=10)
+    
+    if lines is None or len(lines) < 5:
+        return None
+    
+    angles = []
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        if x2 - x1 == 0:
+            continue
+        angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+        if abs(angle) < 45:
+            angles.append(angle)
+    
+    if len(angles) < 3:
+        return None
+    
+    return np.median(angles)
+
+def detect_skew_minarea(gray):
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    coords = np.column_stack(np.where(binary > 0))
+    
+    if len(coords) < 100:
+        return None, 0
+    
+    rect = cv2.minAreaRect(coords)
+    angle = rect[-1]
+    
+    if angle < -45:
+        angle = 90 + angle
+    elif angle > 45:
+        angle = angle - 90
+    
+    return -angle, len(coords)
+
+def detect_skew_angle(img_array):
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    angle_minarea, content_count = detect_skew_minarea(gray)
+    
+    if angle_minarea is not None and content_count > 1000 and abs(angle_minarea) > 0.1:
+        return angle_minarea
+    
+    angle_hough = detect_skew_hough(gray)
+    
+    if angle_hough is not None and abs(angle_hough) > 0.1:
+        return angle_hough
+    
+    if angle_minarea is not None:
+        return angle_minarea
+    
+    return 0.0
+
+def deskew_image(img_array, angle):
+    h, w = img_array.shape[:2]
+    center = (w // 2, h // 2)
+    
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    
+    cos_val = np.abs(M[0, 0])
+    sin_val = np.abs(M[0, 1])
+    new_w = int(h * sin_val + w * cos_val)
+    new_h = int(h * cos_val + w * sin_val)
+    
+    M[0, 2] += (new_w - w) // 2
+    M[1, 2] += (new_h - h) // 2
+    
+    if len(img_array.shape) == 3:
+        border_color = (255, 255, 255)
+    else:
+        border_color = 255
+    
+    rotated = cv2.warpAffine(
+        img_array, M, (new_w, new_h),
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=border_color
+    )
+    return rotated
 `);
         return pyodide;
     }
@@ -402,12 +529,8 @@ base64.b64encode(output).decode('ascii')
             pyodide.FS.unlink(inputPath);
         } catch { /* ignore cleanup errors */ }
 
-        const binary = atob(result);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
-        return new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
+        const bytes = base64ToUint8Array(result);
+        return new Blob([bytes], { type: 'application/pdf' });
     }
 
     /**
@@ -443,12 +566,8 @@ base64.b64encode(output).decode('ascii')
             pyodide.FS.unlink(inputPath);
         } catch { /* ignore cleanup errors */ }
 
-        const binary = atob(result);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
-        return new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
+        const bytes = base64ToUint8Array(result);
+        return new Blob([bytes], { type: 'application/pdf' });
     }
 
     async xpsToPdf(xps: Blob | File): Promise<Blob> {
@@ -501,12 +620,8 @@ _multi_img_pdf.close()
 base64.b64encode(output).decode('ascii')
 `) as string;
 
-        const binary = atob(result);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
-        return new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
+        const bytes = base64ToUint8Array(result);
+        return new Blob([bytes], { type: 'application/pdf' });
     }
 
     async pdfToImages(pdf: Blob | File, options?: {
@@ -534,11 +649,7 @@ pix = page.get_pixmap(matrix=mat)
 base64.b64encode(pix.tobytes("${format}")).decode('ascii')
 `) as string;
 
-            const binary = atob(result);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) {
-                bytes[i] = binary.charCodeAt(i);
-            }
+            const bytes = base64ToUint8Array(result);
             results.push(bytes);
         }
 
@@ -672,11 +783,7 @@ doc.close()
 base64.b64encode(pdf_bytes).decode('ascii')
 `) as string;
 
-        const binaryStr = atob(result);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-        }
+        const bytes = base64ToUint8Array(result);
         return new Blob([bytes], { type: 'application/pdf' });
     }
 
@@ -688,18 +795,9 @@ base64.b64encode(pdf_bytes).decode('ascii')
     }): Promise<Blob> {
         const pyodide = await this.getPyodide();
 
-        const uint8ToBase64 = (u8Arr: Uint8Array): string => {
-            const CHUNK_SIZE = 0x8000;
-            let result = '';
-            for (let i = 0; i < u8Arr.length; i += CHUNK_SIZE) {
-                result += String.fromCharCode.apply(null, u8Arr.subarray(i, Math.min(i + CHUNK_SIZE, u8Arr.length)) as any);
-            }
-            return btoa(result);
-        };
-
         const encoder = new TextEncoder();
-        const htmlBase64 = uint8ToBase64(encoder.encode(html));
-        const cssBase64 = options?.css ? uint8ToBase64(encoder.encode(options.css)) : '';
+        const htmlBase64 = uint8ArrayToBase64(encoder.encode(html));
+        const cssBase64 = options?.css ? uint8ArrayToBase64(encoder.encode(options.css)) : '';
 
         const attachmentsList: { name: string; data: string }[] = [];
         if (options?.attachments) {
@@ -707,7 +805,7 @@ base64.b64encode(pdf_bytes).decode('ascii')
                 if (att.content && att.content.length > 0) {
                     attachmentsList.push({
                         name: att.filename,
-                        data: uint8ToBase64(att.content)
+                        data: uint8ArrayToBase64(att.content)
                     });
                 }
             }
@@ -809,11 +907,7 @@ base64.b64encode(final_pdf).decode('ascii')
         // Cleanup global
         try { (pyodide as any).globals.delete("attachments_json"); } catch { /* ignore */ }
 
-        const binaryStr = atob(result);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-        }
+        const bytes = base64ToUint8Array(result);
         return new Blob([bytes], { type: 'application/pdf' });
     }
 
@@ -1092,12 +1186,111 @@ base64.b64encode(pdf_bytes).decode('ascii')
             pyodide.FS.unlink(inputPath);
         } catch { /* ignore */ }
 
-        const binary = atob(result);
+        const bytes = base64ToUint8Array(result);
+        return new Blob([bytes], { type: 'application/pdf' });
+    }
+
+    async deskewPdf(
+        pdf: Blob | File,
+        options?: DeskewOptions
+    ): Promise<{ pdf: Blob; result: DeskewResult }> {
+        const pyodide = await this.getPyodide();
+        const docId = ++this.docCounter;
+        const inputPath = `/deskew_input_${docId}`;
+
+        const threshold = options?.threshold ?? 0.5;
+        const dpi = options?.dpi ?? 150;
+        const maxAngle = options?.maxAngle ?? 45;
+        const pages = options?.pages;
+
+        const buf = await pdf.arrayBuffer();
+        pyodide.FS.writeFile(inputPath, new Uint8Array(buf));
+
+        const pagesArg = pages ? `[${pages.join(', ')}]` : 'None';
+
+        const result = pyodide.runPython(`
+import base64
+import json
+
+src_doc = pymupdf.open("${inputPath}")
+src_doc = repair_pdf(src_doc)
+out_doc = pymupdf.open()
+
+zoom = ${dpi} / 72.0
+mat = pymupdf.Matrix(zoom, zoom)
+
+page_indices = ${pagesArg} if ${pagesArg} is not None else range(src_doc.page_count)
+angles = []
+corrected = []
+
+for page_idx in page_indices:
+    if page_idx < 0 or page_idx >= src_doc.page_count:
+        continue
+    
+    page = src_doc[page_idx]
+    orig_rect = page.rect
+    
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+    
+    img_data = pix.samples
+    img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+    
+    if pix.n == 4:
+        img_array = cv2.cvtColor(img_array, cv2.COLOR_RGBA2RGB)
+    
+    angle = detect_skew_angle(img_array)
+    angles.append(float(angle))
+    
+    should_correct = abs(angle) >= ${threshold} and abs(angle) <= ${maxAngle}
+    corrected.append(should_correct)
+    
+    if should_correct:
+        corrected_img = deskew_image(img_array, angle)
+        
+        success, img_bytes = cv2.imencode('.png', cv2.cvtColor(corrected_img, cv2.COLOR_RGB2BGR))
+        if not success:
+            raise ValueError(f"Failed to encode corrected image for page {page_idx}")
+        img_bytes = img_bytes.tobytes()
+    else:
+        img_bytes = pix.tobytes("png")
+    
+    new_page = out_doc.new_page(width=orig_rect.width, height=orig_rect.height)
+    
+    new_page.insert_image(new_page.rect, stream=img_bytes)
+
+src_doc.close()
+total_pages = len(angles)
+corrected_count = sum(1 for c in corrected if c)
+pdf_bytes = out_doc.tobytes(garbage=3, deflate=True)
+out_doc.close()
+
+result_json = json.dumps({
+    "totalPages": total_pages,
+    "correctedPages": corrected_count,
+    "angles": angles,
+    "corrected": corrected
+})
+
+(base64.b64encode(pdf_bytes).decode('ascii'), result_json)
+`) as [string, string];
+
+        try {
+            pyodide.FS.unlink(inputPath);
+        } catch { /* ignore */ }
+
+        const [pdfBase64, resultJson] = result;
+        const binary = atob(pdfBase64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) {
             bytes[i] = binary.charCodeAt(i);
         }
-        return new Blob([bytes], { type: 'application/pdf' });
+
+        const deskewResult: DeskewResult = JSON.parse(resultJson);
+
+        return {
+            pdf: new Blob([bytes], { type: 'application/pdf' }),
+            result: deskewResult
+        };
     }
 
     /**

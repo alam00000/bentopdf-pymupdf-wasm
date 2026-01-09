@@ -1,4 +1,4 @@
-export { PyMuPDF, type PyMuPDFOptions, type EpubOptions, type RasterizeOptions, type CompressOptions, type CompressResult } from './pymupdf';
+export { PyMuPDF, type PyMuPDFOptions, type EpubOptions, type RasterizeOptions, type CompressOptions, type CompressResult, type DeskewOptions, type DeskewResult } from './pymupdf';
 export { PyMuPDFDocument } from './document';
 export { PyMuPDFPage } from './page';
 
