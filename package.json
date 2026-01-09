@@ -1,6 +1,6 @@
 {
     "name": "@bentopdf/pymupdf-wasm",
-    "version": "0.1.11",
+    "version": "0.11.12",
     "description": "PyMuPDF compiled to WebAssembly - Full PDF manipulation in the browser",
     "type": "module",
     "main": "dist/index.js",
