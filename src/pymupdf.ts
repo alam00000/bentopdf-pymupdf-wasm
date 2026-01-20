@@ -1,6 +1,5 @@
 import { PyMuPDFDocument } from './document';
 import type { PyodideInterface, LlamaIndexDocument } from './types';
-import loadGhostscriptWASM from '@bentopdf/gs-wasm';
 
 interface GhostscriptModule {
     FS: {
@@ -15,18 +14,28 @@ interface GhostscriptModule {
 /**
  * Convert PDF to RGB colorspace using Ghostscript
  * This fixes CMYK images that cause issues with pdf2docx
+ * @param pdfData - PDF data to convert
+ * @param gsBaseUrl - Base URL to gs-wasm assets (e.g., https://cdn.jsdelivr.net/npm/@bentopdf/gs-wasm@0.1.0/assets/)
  */
-async function convertPdfToRgb(pdfData: Uint8Array): Promise<Uint8Array> {
+async function convertPdfToRgb(pdfData: Uint8Array, gsBaseUrl: string): Promise<Uint8Array> {
+    if (!gsBaseUrl) {
+        throw new Error('Ghostscript URL not configured. Cannot perform RGB conversion.');
+    }
+
     console.log('[convertPdfToRgb] Starting Ghostscript RGB conversion...');
     console.log('[convertPdfToRgb] Input size:', pdfData.length);
+    console.log('[convertPdfToRgb] GS base URL:', gsBaseUrl);
 
+    // Normalize URL
+    const normalizedGsUrl = gsBaseUrl.endsWith('/') ? gsBaseUrl : `${gsBaseUrl}/`;
+    
+    // Dynamic import of Ghostscript library from dist/index.js
+    const libraryUrl = `${normalizedGsUrl}dist/index.js`;
+    const { loadGhostscriptWASM } = await import(/* @vite-ignore */ libraryUrl);
+
+    // Initialize Ghostscript using the library helper
     const gs = await loadGhostscriptWASM({
-        locateFile: (path: string) => {
-            if (path.endsWith('.wasm')) {
-                return '/ghostscript-wasm/gs.wasm';
-            }
-            return path;
-        },
+        baseUrl: `${normalizedGsUrl}assets/`,
         print: (text: string) => console.log('[GS RGB]', text),
         printErr: (text: string) => console.error('[GS RGB Error]', text),
     }) as GhostscriptModule;
@@ -139,6 +148,8 @@ const ASSETS = {
 
 export interface PyMuPDFOptions {
     assetPath?: string;
+    /** Base URL to gs-wasm assets for Ghostscript operations (e.g., https://cdn.jsdelivr.net/npm/@bentopdf/gs-wasm@0.1.0/assets/) */
+    ghostscriptUrl?: string;
 }
 
 export interface EpubOptions {
@@ -164,6 +175,7 @@ export interface DeskewResult {
 
 export class PyMuPDF {
     private assetPath: string;
+    private ghostscriptUrl: string;
     private pyodidePromise: Promise<PyodideInterface> | null = null;
     private pyodide: PyodideInterface | null = null;
     private docCounter = 0;
@@ -171,8 +183,10 @@ export class PyMuPDF {
     constructor(options?: PyMuPDFOptions | string) {
         if (typeof options === 'string') {
             this.assetPath = options;
+            this.ghostscriptUrl = '';
         } else {
             this.assetPath = options?.assetPath ?? './';
+            this.ghostscriptUrl = options?.ghostscriptUrl ?? '';
         }
         if (!this.assetPath.endsWith('/')) {
             this.assetPath += '/';
@@ -354,7 +368,7 @@ def deskew_image(img_array, angle):
 
         console.log('[pdfToDocx] Converting PDF to RGB colorspace with Ghostscript...');
         try {
-            const rgbData = await convertPdfToRgb(pdfData);
+            const rgbData = await convertPdfToRgb(pdfData, this.ghostscriptUrl);
             pdfData = rgbData;
             console.log('[pdfToDocx] RGB conversion complete');
         } catch (e) {

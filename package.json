@@ -19,15 +19,13 @@
     "files": [
         "dist",
         "types",
-        "assets"
+        "assets",
+        "build_scripts"
     ],
     "scripts": {
-        "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:./assets/* --external:@bentopdf/gs-wasm",
-        "dev": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --watch --external:@bentopdf/gs-wasm",
+        "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --external:./assets/*",
+        "dev": "esbuild src/index.ts --bundle --format=esm --outfile=dist/index.js --watch",
         "typecheck": "tsc --noEmit"
-    },
-    "peerDependencies": {
-        "@bentopdf/gs-wasm": "*"
     },
     "repository": {
         "type": "git",
@@ -46,7 +44,10 @@
         "extract"
     ],
     "author": "BentoPDF",
-    "license": "AGPL-3.0",
+    "contributors": [
+        "Artifex Software, Inc."
+    ],
+    "license": "AGPL-3.0-only",
     "bugs": "https://github.com/alam00000/bentopdf-pymupdf-wasm/issues",
     "devDependencies": {
         "esbuild": "^0.21.2",
