@@ -1371,19 +1371,121 @@ doc.scrub(
     reset_responses=${scrubResetResponses ? 'True' : 'False'},
 )
 
-# 2. Image compression
+# 2. Image compression (safe per-xref approach to avoid MuPDF buffer overflow
+#    with shared image xrefs across many pages — bypasses doc.rewrite_images())
 if ${compressImages ? 'True' : 'False'}:
-    doc.rewrite_images(
-        dpi_threshold=${dpiThreshold},
-        dpi_target=${dpiTarget},
-        quality=${imageQuality},
-        lossy=${processLossy ? 'True' : 'False'},
-        lossless=${processLossless ? 'True' : 'False'},
-        bitonal=${processBitonal ? 'True' : 'False'},
-        color=${processColor ? 'True' : 'False'},
-        gray=${processGray ? 'True' : 'False'},
-        set_to_gray=${convertToGray ? 'True' : 'False'},
-    )
+    import math as _math
+    import sys as _sys
+
+    _dpi_target = ${dpiTarget}
+    _dpi_threshold = ${dpiThreshold}
+    _quality = ${imageQuality}
+    _set_to_gray = ${convertToGray ? 'True' : 'False'}
+    _process_lossy = ${processLossy ? 'True' : 'False'}
+    _process_lossless = ${processLossless ? 'True' : 'False'}
+    _process_bitonal = ${processBitonal ? 'True' : 'False'}
+    _process_color = ${processColor ? 'True' : 'False'}
+    _process_gray = ${processGray ? 'True' : 'False'}
+
+    # Phase 1: Collect unique image xrefs and smask info
+    _xref_info = {}
+    for _page in doc:
+        for _img in _page.get_images(full=True):
+            _xref, _smask = _img[0], _img[1]
+            if _xref > 0:
+                _xref_info.setdefault(_xref, {"smask": _smask, "min_dpi": float("inf")})
+
+    # Phase 2: Calculate effective DPI for each xref across all page usages
+    for _page in doc:
+        for _info in _page.get_image_info(hashes=False, xrefs=True):
+            _xref = _info.get("xref", 0)
+            if _xref not in _xref_info:
+                continue
+            _bbox = _info.get("bbox")
+            _w = _info.get("width", 0)
+            _h = _info.get("height", 0)
+            if _bbox and _w > 0 and _h > 0:
+                _disp_w = abs(_bbox[2] - _bbox[0])
+                _disp_h = abs(_bbox[3] - _bbox[1])
+                if _disp_w > 0 and _disp_h > 0:
+                    _dpi = min(_w / _disp_w * 72, _h / _disp_h * 72)
+                    if _dpi < _xref_info[_xref]["min_dpi"]:
+                        _xref_info[_xref]["min_dpi"] = _dpi
+
+    _effective_threshold = max(_dpi_threshold or 0, (_dpi_target or 0) + 10) if _dpi_target else None
+
+    # Phase 3: Rewrite each image xref individually
+    for _xref, _meta in _xref_info.items():
+        _min_dpi = _meta["min_dpi"]
+        _smask_xref = _meta["smask"]
+
+        _needs_downscale = bool(
+            _dpi_target and _effective_threshold
+            and _min_dpi != float("inf")
+            and _min_dpi > _effective_threshold
+        )
+        if not _needs_downscale and _quality is None and not _set_to_gray:
+            continue
+
+        try:
+            # Check image type filters (match rewrite_images behavior)
+            _xref_obj = doc.xref_object(_xref)
+            _is_lossy = "/DCTDecode" in _xref_obj or "/JPXDecode" in _xref_obj
+            _is_lossless = not _is_lossy
+            if _is_lossy and not _process_lossy:
+                continue
+            if _is_lossless and not _process_lossless:
+                continue
+
+            _pix = pymupdf.Pixmap(doc, _xref)
+
+            # Check colorspace filters
+            _n = _pix.colorspace.n if _pix.colorspace else 0
+            _is_bitonal = (_pix.colorspace and _n == 1 and doc.xref_get_key(_xref, "BitsPerComponent")[1] == "1")
+            _is_gray = (_n == 1 and not _is_bitonal)
+            _is_color = (_n >= 3)
+            if _is_bitonal and not _process_bitonal:
+                _pix = None
+                continue
+            if _is_gray and not _process_gray:
+                _pix = None
+                continue
+            if _is_color and not _process_color:
+                _pix = None
+                continue
+
+            if _set_to_gray and _pix.colorspace and _pix.colorspace.n > 1:
+                _pix = pymupdf.Pixmap(pymupdf.csGRAY, _pix)
+            elif _pix.alpha:
+                _pix = pymupdf.Pixmap(_pix.colorspace or pymupdf.csRGB, _pix)
+
+            if _needs_downscale:
+                _ratio = _min_dpi / _dpi_target
+                _shrink_n = max(0, min(7, int(_math.log2(_ratio))))
+                if _shrink_n > 0:
+                    _pix.shrink(_shrink_n)
+
+            _q = _quality if _quality is not None else 85
+            _jpeg_bytes = _pix.tobytes("jpeg", jpg_quality=_q)
+
+            _cs_name = (
+                "/DeviceGray"
+                if _pix.colorspace and _pix.colorspace.n == 1
+                else "/DeviceRGB"
+            )
+            _smask_entry = f"/SMask {_smask_xref} 0 R " if _smask_xref else ""
+            _new_obj = (
+                f"<</Type /XObject /Subtype /Image /BitsPerComponent 8"
+                f" /ColorSpace {_cs_name} /Filter /DCTDecode"
+                f" /Height {_pix.height} /Width {_pix.width}"
+                f" {_smask_entry}>>"
+            )
+            doc.update_object(_xref, _new_obj)
+            doc.update_stream(_xref, _jpeg_bytes, compress=0)
+            _pix = None
+
+        except Exception as _e:
+            _sys.stderr.write(f"[pymupdf-wasm] safe_rewrite_images xref {_xref}: {_e}\\n")
 
 # 3. Font subsetting
 if ${subsetFonts ? 'True' : 'False'}:
