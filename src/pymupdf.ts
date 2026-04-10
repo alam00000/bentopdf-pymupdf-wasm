@@ -1256,7 +1256,7 @@ for page_idx in page_indices:
     angles.append(float(angle))
     
     should_correct = abs(angle) >= ${threshold} and abs(angle) <= ${maxAngle}
-    corrected.append(should_correct)
+    corrected.append(1 if should_correct else 0)
     
     if should_correct:
         corrected_img = deskew_image(img_array, angle)
@@ -1279,10 +1279,10 @@ pdf_bytes = out_doc.tobytes(garbage=3, deflate=True)
 out_doc.close()
 
 result_json = json.dumps({
-    "totalPages": total_pages,
-    "correctedPages": corrected_count,
-    "angles": angles,
-    "corrected": corrected
+    "totalPages": int(total_pages),
+    "correctedPages": int(corrected_count),
+    "angles": [float(a) for a in angles],
+    "corrected": [int(c) for c in corrected]
 })
 
 (base64.b64encode(pdf_bytes).decode('ascii'), result_json)
@@ -1299,7 +1299,11 @@ result_json = json.dumps({
             bytes[i] = binary.charCodeAt(i);
         }
 
-        const deskewResult: DeskewResult = JSON.parse(resultJson);
+        const parsed = JSON.parse(resultJson);
+        const deskewResult: DeskewResult = {
+            ...parsed,
+            corrected: parsed.corrected.map((c: number) => Boolean(c)),
+        };
 
         return {
             pdf: new Blob([bytes], { type: 'application/pdf' }),
