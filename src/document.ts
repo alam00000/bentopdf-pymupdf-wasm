@@ -235,12 +235,12 @@ json.dumps(fields)
         this.ensureOpen();
         const valueStr = typeof value === 'boolean'
             ? (value ? 'True' : 'False')
-            : `"${String(value).replace(/"/g, '\\"')}"`;
+            : JSON.stringify(String(value));
 
         this.runPython(`
 for page in ${this.docVar}:
     for widget in page.widgets():
-        if widget.field_name == "${name}":
+        if widget.field_name == ${JSON.stringify(name)}:
             widget.field_value = ${valueStr}
             widget.update()
             break
@@ -249,7 +249,7 @@ for page in ${this.docVar}:
 
     authenticate(password: string): boolean {
         this.ensureOpen();
-        return this.runPython(`${this.docVar}.authenticate("${password}")`) as boolean;
+        return this.runPython(`${this.docVar}.authenticate(${JSON.stringify(password)})`) as boolean;
     }
 
     save(options?: {
@@ -450,7 +450,7 @@ json.dumps(result_list)
         const usage = options?.usage ?? 'Artwork';
 
         return this.runPython(`
-${this.docVar}.add_ocg("${name.replace(/"/g, '\\"')}", config=${config}, on=${on ? 'True' : 'False'}, intent="${intent}", usage="${usage}")
+${this.docVar}.add_ocg(${JSON.stringify(name)}, config=${config}, on=${on ? 'True' : 'False'}, intent=${JSON.stringify(intent)}, usage=${JSON.stringify(usage)})
 `) as number;
     }
 
@@ -465,7 +465,7 @@ ${this.docVar}.add_ocg("${name.replace(/"/g, '\\"')}", config=${config}, on=${on
 import re
 
 # 1. Create the new OCG (automatically added to root of Order array)
-child_xref = ${this.docVar}.add_ocg("${name.replace(/"/g, '\\"')}", config=${config}, on=${on ? 'True' : 'False'}, intent="${intent}", usage="${usage}")
+child_xref = ${this.docVar}.add_ocg(${JSON.stringify(name)}, config=${config}, on=${on ? 'True' : 'False'}, intent=${JSON.stringify(intent)}, usage=${JSON.stringify(usage)})
 
 catalog_xref = ${this.docVar}.pdf_catalog()
 

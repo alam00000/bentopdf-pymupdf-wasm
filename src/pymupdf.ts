@@ -528,7 +528,7 @@ ImagesExtractor._to_raw_dict = _orig_to_raw_dict
         const result = pyodide.runPython(`
 import base64
 
-src = pymupdf.open("${inputPath}"${ext ? `, filetype="${ext}"` : ''})
+src = pymupdf.open(${JSON.stringify(inputPath)}${ext ? `, filetype=${JSON.stringify(ext)}` : ''})
 pdf_bytes = src.convert_to_pdf()
 src.close()
 
@@ -660,7 +660,7 @@ import base64
 page = ${doc.docVar}[${pageIdx}]
 mat = pymupdf.Matrix(${zoom}, ${zoom})
 pix = page.get_pixmap(matrix=mat)
-base64.b64encode(pix.tobytes("${format}")).decode('ascii')
+base64.b64encode(pix.tobytes(${JSON.stringify(format)})).decode('ascii')
 `) as string;
 
             const bytes = base64ToUint8Array(result);
@@ -773,7 +773,7 @@ ${escapedText}
 
 css_content = "* { font-family: ${fontFamily}; font-size: ${fontSize}pt; }"
 
-mediabox = pymupdf.paper_rect("${pageSize}")
+mediabox = pymupdf.paper_rect(${JSON.stringify(pageSize)})
 margin = ${margins}
 where = mediabox + (margin, margin, -margin, -margin)
 
@@ -854,7 +854,7 @@ if css_content:
     else:
         html_content = '<style>' + css_content + '</style>' + html_content
 
-mediabox = pymupdf.paper_rect("${pageSize}")
+mediabox = pymupdf.paper_rect(${JSON.stringify(pageSize)})
 where = mediabox + (${margins.left}, ${margins.top}, -${margins.right}, -${margins.bottom})
 
 doc = pymupdf.open()
@@ -1055,7 +1055,7 @@ for chunk in chunks:
         doc_dict = {
             "text": chunk.get("text", ""),
             "metadata": {
-                "file_name": "${filename.replace(/"/g, '\\"')}",
+                "file_name": ${JSON.stringify(filename)},
                 "total_pages": page_count
             }
         }
@@ -1177,7 +1177,7 @@ for page_idx in page_indices:
         pix = pymupdf.Pixmap(pymupdf.csGRAY, pix)
     
     # Get image bytes
-    img_bytes = pix.tobytes("${format}"${format === 'jpeg' ? `, jpg_quality=${quality}` : ''})
+    img_bytes = pix.tobytes(${JSON.stringify(format)}${format === 'jpeg' ? `, jpg_quality=${quality}` : ''})
     
     # Create new page with same dimensions as rendered image
     # Scale back to original page size for the PDF

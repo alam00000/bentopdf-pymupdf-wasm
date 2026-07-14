@@ -37,6 +37,10 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
     return btoa(binary);
 }
 
+function pyStr(value: unknown): string {
+    return JSON.stringify(String(value ?? ''));
+}
+
 export class PyMuPDFPage {
     private runPython: (code: string) => unknown;
     private docVar: string;
@@ -84,7 +88,7 @@ r = page.rect
         const result = this.runPython(`
 import json
 page = ${this.docVar}[${this.pageNumber}]
-json.dumps(page.get_text("${format}"))
+json.dumps(page.get_text(${pyStr(format)}))
 `) as string;
         return JSON.parse(result);
     }
@@ -93,7 +97,7 @@ json.dumps(page.get_text("${format}"))
         const result = this.runPython(`
 import json
 page = ${this.docVar}[${this.pageNumber}]
-rects = page.search_for("${text.replace(/"/g, '\\"')}", quads=${quads ? 'True' : 'False'})
+rects = page.search_for(${pyStr(text)}, quads=${quads ? 'True' : 'False'})
 json.dumps([[r.x0, r.y0, r.x1, r.y1] for r in rects])
 `) as string;
         return JSON.parse(result).map((r: number[]) => ({
@@ -120,9 +124,9 @@ json.dumps([[r.x0, r.y0, r.x1, r.y1] for r in rects])
 page = ${this.docVar}[${this.pageNumber}]
 page.insert_text(
     (${point.x}, ${point.y}),
-    """${text.replace(/"""/g, '\\"\\"\\"')}""",
+    ${pyStr(text)},
     fontsize=${fontsize},
-    fontname="${fontname}",
+    fontname=${pyStr(fontname)},
     color=${color},
     rotate=${rotate}
 )
@@ -238,7 +242,7 @@ annot.update()
         const iconStr = icon ?? 'Note';
         this.runPython(`
 page = ${this.docVar}[${this.pageNumber}]
-annot = page.add_text_annot((${point.x}, ${point.y}), """${text.replace(/"""/g, '\\"\\"\\"')}""", icon="${iconStr}")
+annot = page.add_text_annot((${point.x}, ${point.y}), ${pyStr(text)}, icon=${pyStr(iconStr)})
 annot.update()
 `);
     }
@@ -283,7 +287,7 @@ page = ${this.docVar}[${this.pageNumber}]
 page.insert_link({
     'kind': pymupdf.LINK_URI,
     'from': pymupdf.Rect(${rect.x0}, ${rect.y0}, ${rect.x1}, ${rect.y1}),
-    'uri': "${uri}"
+    'uri': ${pyStr(uri)}
 })
 `);
     }
@@ -323,7 +327,7 @@ base64.b64encode(pix.tobytes("png")).decode('ascii')
 page = ${this.docVar}[${this.pageNumber}]
 page.add_redact_annot(
     pymupdf.Rect(${rect.x0}, ${rect.y0}, ${rect.x1}, ${rect.y1}),
-    text="${replaceText}",
+    text=${pyStr(replaceText)},
     fill=${fillColor}
 )
 `);
@@ -378,13 +382,13 @@ shape.commit()
             optionsStr += `clip=pymupdf.Rect(${c.x0}, ${c.y0}, ${c.x1}, ${c.y1}), `;
         }
         if (options?.strategy) {
-            optionsStr += `strategy="${options.strategy}", `;
+            optionsStr += `strategy=${pyStr(options.strategy)}, `;
         }
         if (options?.verticalStrategy) {
-            optionsStr += `vertical_strategy="${options.verticalStrategy}", `;
+            optionsStr += `vertical_strategy=${pyStr(options.verticalStrategy)}, `;
         }
         if (options?.horizontalStrategy) {
-            optionsStr += `horizontal_strategy="${options.horizontalStrategy}", `;
+            optionsStr += `horizontal_strategy=${pyStr(options.horizontalStrategy)}, `;
         }
         if (options?.addLines && options.addLines.length > 0) {
             const linesStr = options.addLines.map((l: number[]) => `(${l.join(',')})`).join(',');
